@@ -5,6 +5,7 @@ import requests
 import imaplib
 from datetime import datetime
 from apiclient import discovery
+from tabulate import tabulate
 from todoist.api import TodoistAPI
 
 class Todoist:
@@ -18,6 +19,7 @@ class Todoist:
 
     def quick_add(self, task_string):
         self.api.quick.add(task_string)
+        return 'Added task'
 
     def get_all_tasks(self):
         return self.api['items']
@@ -25,7 +27,7 @@ class Todoist:
     def get_urgent_tasks(self):
         return helpers.urgent_task_filter(self.get_all_tasks())
 
-    def get_project_name(task):
+    def get_project_name(self, task):
         return self.api.projects.get(task['project_id'])
 
     def complete_task(self, task_name):
@@ -38,22 +40,28 @@ class Todoist:
             task = next(iter(matching_tasks))
             task.close()
             self.api.commit()
-            return True
+            return 'Completed'
 
-        print('ambiguous task')
-        return False
+        return 'Ambiguous task'
 
-    def print_task(self, task):
+        def _str_tasks(self, tasks):
+                out = ['date', 'project', 'description']
+                out.extend([self._str_task(task) for task in tasks])
+                return tabulate(out, headers='firstrow')
+
+        def str_urgent_tasks(self):
+                return self._str_tasks(self.get_urgent_tasks())
+
+        def str_all_tasks(self):
+                return self._str_tasks(self.get_all_tasks())
+
+    def _str_task(self, task):
         project_name = self.api.projects.get_by_id(task['project_id'])['name']
         date = task['due_date_utc']
         if date is not None:
             date = ' '.join(task['due_date_utc'].split()[:4])
 
-        print(
-                str(date) + '\t' +
-                str(project_name) + '\t' +
-                str(task['content'])
-             )
+        return [str(date), str(project_name), str(task['content'])]
 
 class Timer:
     def __init__(self):
@@ -66,14 +74,14 @@ class Timer:
         self.settings['timestamp'] = time.mktime(current_time.timetuple())
         self.settings['description'] = desc
         helpers.write_settings('timer', self.settings)
+        return 'Started timer'
 
     def current_timer(self):
         return self.settings['description']
 
     def stop(self):
-        if not self.settings['timestamp'] or not self.settings['description']:
-            print('No current timer')
-            return
+        if self.settings['timestamp'] is None or self.settings['description'] is None:
+            return 'No current timer'
 
         desc = self.settings.pop('description')
         current_time = datetime.now()
@@ -85,6 +93,7 @@ class Timer:
             time_log_file.write(helpers.format_time(delta) + '\n')
 
         helpers.write_settings('timer', self.settings)
+        return 'Stopped timer'
 
 class Gmail:
     def __init__(self):
@@ -92,7 +101,8 @@ class Gmail:
             # storage_files: {email: file_name}
             self.settings = json.load(settings_file)['gmail']
 
-        self.connections = {email: discovery.build('gmail', 'v1', helpers.get_oauth_connection(file_name)) for email, file_name in self.settings['storage_files'].items()}
+        self.connections = {email: discovery.build('gmail', 'v1', helpers.get_oauth_connection(file_name))
+                                for email, file_name in self.settings['storage_files'].items()}
     
     def get_num_unread(self):
         output = {}
@@ -129,12 +139,16 @@ class Calendar:
 
     def add(self, event_text):
         self.service.events().quickAdd(calendarId='primary', text=event_text)
+        return 'Added event'
 
-    def print_event(self, event):
-        print(
-                event['description'] + ' from ' + 
-                event['start']['dateTime'].strftime('%H:%M') + ' to ' +
-                event['end']['dateTime'].strftime('%H:%M')
-             )
+        def str_today_events(self):
+                out = ['event', 'start', 'end']
+                out.extend([self.str_event(event) for event in self.get_today_schedule()])
+                return tabulate(out, headers='firstrow')
 
-
+    def str_event(self, event):
+        return [
+                event['description'],
+                event['start']['dateTime'],
+                event['end']['dateTime'],
+               ]
